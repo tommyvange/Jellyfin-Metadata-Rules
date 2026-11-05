@@ -5,6 +5,9 @@
 [![Latest release](https://img.shields.io/github/v/release/tommyvange/Jellyfin-Metadata-Rules)](https://github.com/tommyvange/Jellyfin-Metadata-Rules/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+> [!NOTE]
+> This plugin is a server-side plugin and makes no front-end changes directly.
+
 ![Metadata Rules](assets/Jellyfin-Metadata-Rules.png)
 
 Set metadata language and country using rules based on your Jellyfin library. Build nested conditions, preview the results, and apply preferences with optional metadata and image replacement. Rules support movies, series, seasons, and episodes.
