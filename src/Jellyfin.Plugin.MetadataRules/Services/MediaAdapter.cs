@@ -110,9 +110,16 @@ public sealed class JellyfinMediaAdapter(ILibraryManager library, IMediaSourceMa
             }
             void OriginalLanguage(string key, string? value, BaseItem? metadataSource = null)
             {
-                if (UnknownLanguage(value))
+                if (key == "series.originalLanguage" && metadataSource is null)
                 {
-                    var reason = "Stored original-language metadata does not identify one language (" + value + ").";
+                    fields[key] = FactValue.NotReady("The series metadata is not available yet.");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(value) || UnknownLanguage(value))
+                {
+                    var reason = string.IsNullOrWhiteSpace(value)
+                        ? "Stored metadata has no original language."
+                        : "Stored original-language metadata does not identify one language (" + value + ").";
                     fields[key] = (metadataSource ?? current).DateLastRefreshed == default ? FactValue.NotReady(reason) : FactValue.Absent(reason);
                 }
                 else Put(key, Normalize(value));

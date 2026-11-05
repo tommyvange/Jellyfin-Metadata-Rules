@@ -47,7 +47,9 @@ public sealed class FieldRegistry
                 "boolean" => ["isTrue", "isFalse"], _ => []
             };
             fields.Add(new(id, label, type, kinds, [.. ops, .. AvailabilityOperators], choices ?? storedChoices?.GetValueOrDefault(id) ?? [], [dependency],
-                "Unknown comparisons defer. Is missing matches confirmed absence only; unfinished facts remain unknown.", comparison,
+                id is "item.originalLanguage" or "series.originalLanguage"
+                    ? "Confirmed missing original language does not match language comparisons; later branches remain eligible. Is missing matches confirmed absence. Unfinished, unsupported, or unreadable facts remain unknown."
+                    : "Unknown comparisons defer. Is missing matches confirmed absence only; unfinished facts remain unknown.", comparison,
                 help ?? "Stored source value; unavailable data is shown with an explicit reason."));
         }
         Add("item.kind", "Item kind", "enum", AllKinds, "identity", choices: AllKinds.Select(x => new ValueChoice(x, x)).ToArray());
@@ -55,8 +57,8 @@ public sealed class FieldRegistry
         Add("item.id", "Item ID", "text", AllKinds, "identity");
         Add("item.title", "Title", "text", AllKinds);
         Add("item.originalTitle", "Original title", "text", MediaKinds);
-        Add("item.originalLanguage", "Original language (metadata)", "language", MediaKinds, help: "One provider supplied original language; independent of spoken audio tracks.", choices: LanguageNormalizer.NorwegianChoices);
-        Add("series.originalLanguage", "Series original language (metadata)", "language", ["Episode", "Season"], "series", choices: LanguageNormalizer.NorwegianChoices);
+        Add("item.originalLanguage", "Original language (metadata)", "language", MediaKinds, help: "One provider supplied original language; independent of spoken audio tracks. A confirmed missing language does not match comparisons and allows later rules to run. Use Is missing to match absence explicitly.", choices: LanguageNormalizer.NorwegianChoices);
+        Add("series.originalLanguage", "Series original language (metadata)", "language", ["Episode", "Season"], "series", help: "The series provider’s stored original language. Confirmed absence does not match comparisons and allows later rules to run; unfinished facts still defer.", choices: LanguageNormalizer.NorwegianChoices);
         Add("metadata.language", "Explicit metadata language", "language", MediaKinds, "preferences");
         Add("metadata.country", "Explicit metadata country", "enum", MediaKinds, "preferences", comparison: "countryCode");
         Add("metadata.effectiveLanguage", "Effective metadata language", "language", MediaKinds, "preferences");

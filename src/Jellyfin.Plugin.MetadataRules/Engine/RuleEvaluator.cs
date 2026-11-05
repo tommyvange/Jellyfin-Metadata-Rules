@@ -119,6 +119,13 @@ public sealed class RuleEvaluator
             if (fact.State is FactState.NotReady or FactState.ReadError) return TruthValue.Unknown;
             return (op == "isKnown" ? fact.State == FactState.Known : fact.State == FactState.Absent) ? TruthValue.True : TruthValue.False;
         }
+        if (fact.State == FactState.Absent
+            && (field.Id is "item.originalLanguage" or "series.originalLanguage")
+            && (op is "eq" or "neq" or "in" or "notIn"))
+        {
+            reason = "Original language is confirmed missing; this comparison does not match. Evaluation can continue to later branches or rulesets. Use 'Is missing' to match absence explicitly.";
+            return TruthValue.False;
+        }
         if (fact.State != FactState.Known) { reason ??= "Comparison requires a known value (" + fact.State + ")."; return TruthValue.Unknown; }
         var actual = FactConversion.Unwrap(fact.Value);
         if (op is "isEmpty" or "isNotEmpty")

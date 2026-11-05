@@ -207,6 +207,71 @@ await Test("Incomplete local version enumeration stays unknown while remote-only
     return Task.CompletedTask;
 });
 
+await Test("Refreshed movies without original language reach later Norwegian audio and regular branches", () =>
+{
+    var f = new Fixture(); var movie = f.Movie();
+    f.Versions[movie.Id] = [Fixture.Source(movie.Id, movie.Path, 100)];
+    f.Streams[movie.Id] = [new() { Type = MediaStreamType.Audio, Index = 2, Language = "nob", IsDefault = false }];
+    var document = Rules(Predicate("item.originalLanguage", "eq", RuleValue.TextValue("norwegian")));
+    var audioBranch = new RuleBranch { Name = "Norwegian audio", Condition = Any("versions", Any("audioTracks", Predicate("audio.language", "eq", RuleValue.TextValue("norwegian")))), Actions = new() { Language = new() { Mode = "set", Value = "no" }, Country = new() { Mode = "set", Value = "NO" } } };
+    document.RuleSets[0].Branches.Add(audioBranch);
+    var evaluator = new RuleEvaluator();
+    foreach (var absent in new string?[] { null, "", " \t" })
+    {
+        movie.OriginalLanguage = absent; movie.DateLastRefreshed = f.Now.UtcDateTime;
+        var facts = f.Adapter.Read(movie.Id.ToString("N"), document, f.Now)!;
+        var result = evaluator.Evaluate(document, facts, f.Now);
+        Check(facts.Get("item.originalLanguage").State == FactState.Absent, "Stored empty original language after metadata refresh must be confirmed absent.");
+        Check(result.Status == "Matched" && result.BranchId == audioBranch.Id && result.Trace[0].Result == TruthValue.False, "Confirmed absence must permit a later Norwegian audio branch.");
+        var plan = new ActionPlanner(evaluator).Plan(document, facts, f.Now);
+        Check(plan.Targets.Single().After is { Language: "no", Country: "NO" }, "Later audio branch must produce its requested locale plan.");
+    }
+    audioBranch.Name = "Regular Movie branch";
+    audioBranch.Condition = Predicate("item.kind", "eq", RuleValue.TextValue("Movie"));
+    var streamReads = f.StreamReads;
+    var regularFacts = f.Adapter.Read(movie.Id.ToString("N"), document, f.Now)!;
+    Check(evaluator.Evaluate(document, regularFacts, f.Now).BranchId == audioBranch.Id && f.StreamReads == streamReads, "A later ordinary branch must also run without loading unneeded tracks.");
+    movie.DateLastRefreshed = default;
+    var pendingFacts = f.Adapter.Read(movie.Id.ToString("N"), document, f.Now)!;
+    Check(pendingFacts.Get("item.originalLanguage").State == FactState.NotReady && evaluator.Evaluate(document, pendingFacts, f.Now).Status == "Deferred", "Unfinished original metadata must continue blocking later branches.");
+    Check(f.Writes == 0 && f.Refreshes.Count == 0, "The regression's facts, evaluation, and plans must remain read-only.");
+    return Task.CompletedTask;
+});
+
+await Test("Inherited series original-language absence uses the series readiness rather than the episode", () =>
+{
+    var f = new Fixture();
+    var series = new Series { Id = Guid.NewGuid(), Name = "Show without original language", OriginalLanguage = null, DateLastRefreshed = default };
+    var episode = new Episode { Id = Guid.NewGuid(), Name = "Episode", ParentId = series.Id, SeriesId = series.Id, OriginalLanguage = "eng", DateLastRefreshed = f.Now.UtcDateTime, Path = "/shows/Episode.mkv" };
+    f.Items[series.Id] = series; f.Items[episode.Id] = episode;
+    var document = Rules(Predicate("series.originalLanguage", "eq", RuleValue.TextValue("norwegian")), null, "Episode");
+    var fallback = new RuleBranch { Name = "Episode fallback", Condition = Predicate("item.kind", "eq", RuleValue.TextValue("Episode")) };
+    document.RuleSets[0].Branches.Add(fallback);
+    var evaluator = new RuleEvaluator();
+    var facts = f.Adapter.Read(episode.Id.ToString("N"), document, f.Now)!;
+    Check(facts.Get("series.originalLanguage").State == FactState.NotReady && evaluator.Evaluate(document, facts, f.Now).Status == "Deferred", "A refreshed episode does not prove its series original metadata is ready.");
+    series.DateLastRefreshed = f.Now.UtcDateTime;
+    facts = f.Adapter.Read(episode.Id.ToString("N"), document, f.Now)!;
+    Check(facts.Get("series.originalLanguage").State == FactState.Absent && evaluator.Evaluate(document, facts, f.Now).BranchId == fallback.Id, "Confirmed series absence must allow an episode's later rule branch.");
+    Check(f.Writes == 0 && f.Refreshes.Count == 0, "Inherited original-language checks must remain read-only.");
+    return Task.CompletedTask;
+});
+
+await Test("Unidentified stored audio remains unknown after completed metadata refresh", () =>
+{
+    var f = new Fixture(); var movie = f.Movie();
+    f.Versions[movie.Id] = [Fixture.Source(movie.Id, movie.Path, 100)];
+    var document = Rules(Any("audioTracks", Predicate("audio.language", "neq", RuleValue.TextValue("no"))));
+    foreach (var absent in new string?[] { null, "", "und", "mul" })
+    {
+        f.Streams[movie.Id] = [new() { Type = MediaStreamType.Audio, Index = 1, Language = absent }];
+        var facts = f.Adapter.Read(movie.Id.ToString("N"), document, f.Now)!;
+        var track = facts.Collections["audioTracks"].Elements.Single();
+        Check(track.Get("audio.language").State == FactState.Absent && new RuleEvaluator().Evaluate(document, facts, f.Now).Status == "Deferred", "Missing audio language must not acquire original-metadata absence semantics.");
+    }
+    return Task.CompletedTask;
+});
+
 await Test("Original-language placeholders report explicit unavailability instead of a usable language", () =>
 {
     var f = new Fixture(); var movie = f.Movie();
@@ -218,7 +283,7 @@ await Test("Original-language placeholders report explicit unavailability instea
         Check(facts.Get("item.originalLanguage").State == FactState.NotReady && !string.IsNullOrEmpty(facts.Get("item.originalLanguage").Reason), "Unfinished placeholder needs a readiness reason: " + marker);
         movie.DateLastRefreshed = f.Now.UtcDateTime;
         facts = f.Adapter.Read(movie.Id.ToString("N"), document, f.Now)!;
-        Check(facts.Get("item.originalLanguage").State == FactState.Absent && new RuleEvaluator().Evaluate(document, facts, f.Now).Status == "Deferred", "Confirmed unidentified language cannot match a negative comparison: " + marker);
+        Check(facts.Get("item.originalLanguage").State == FactState.Absent && new RuleEvaluator().Evaluate(document, facts, f.Now).Status == "NoMatch", "Confirmed unidentified original language makes a negative comparison false and permits fallthrough: " + marker);
     }
     return Task.CompletedTask;
 });

@@ -22,8 +22,8 @@ node scripts/validate-package.mjs
 `npm test` runs release-tooling tests, pure rule-engine cases, coordinator integration checks, adapter acceptance tests against Jellyfin 12.4 interfaces, and age-rating suggestion checks. `npm run package` compiles against the minimum supported Jellyfin API, validates the ZIP contents, and writes:
 
 ```text
-artifacts/Jellyfin.Plugin.MetadataRules_1.0.1.0_jellyfin-12.4.0.zip
-artifacts/Jellyfin.Plugin.MetadataRules_1.0.1.0_jellyfin-12.4.0.zip.sha256
+artifacts/Jellyfin.Plugin.MetadataRules_1.0.2.0_jellyfin-12.4.0.zip
+artifacts/Jellyfin.Plugin.MetadataRules_1.0.2.0_jellyfin-12.4.0.zip.sha256
 ```
 
 The ZIP contains `Jellyfin.Plugin.MetadataRules.dll`, `meta.json`, and `Jellyfin-Metadata-Rules.png` at its root. Jellyfin supplies the server assemblies. Installed metadata enables updates and references the image by its local filename; the repository catalog references the image at the immutable release tag.
@@ -32,14 +32,14 @@ Extract all three files into the plugin's own directory under Jellyfin's `plugin
 
 ## Publish a release
 
-1. Set the four-part plugin version in `Directory.Build.props`. The current source version is `1.0.1.0`; subsequent published versions must increase. Keep the npm package version in `package.json` aligned with its first three components.
+1. Set the four-part plugin version in `Directory.Build.props`. The current source version is `1.0.2.0`; subsequent published versions must increase. Keep the npm package version in `package.json` aligned with its first three components.
 2. Update `release/notes.md`. Keep the plugin GUID and name stable in `release/config.json` and `Plugin.cs`.
 3. Commit to `main`, push, and let **Build and test** pass.
 4. Create and push the matching version tag:
 
    ```sh
-   git tag -a v1.0.1.0 -m "Release 1.0.1.0"
-   git push origin v1.0.1.0
+   git tag -a v1.0.2.0 -m "Release 1.0.2.0"
+   git push origin v1.0.2.0
    ```
 
 The tag must point to a commit on `main` and match the exact source version. The **Publish release** workflow verifies the tagged source with the reusable build workflow, downloads its tested minimum-ABI package, and then publishes it. Creating a local package does not publish anything.

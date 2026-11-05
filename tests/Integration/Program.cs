@@ -142,6 +142,30 @@ try
         Check(deferredFull.State == "Completed", "deferred full reconciliation executes after queue pressure clears");
     }
     finally { await pressureWorker.StopAsync(default); }
+    var missingLanguageMedia = new FakeMedia { OriginalFact = FactValue.Absent() };
+    var missingLanguageStore = new RunStore(Path.Combine(directory, "missing-original-language"));
+    using var missingLanguageWorker = new RunCoordinator(missingLanguageMedia, missingLanguageStore, NullLogger<RunCoordinator>.Instance);
+    var missingLanguageRules = Document();
+    missingLanguageRules.RuleSets.Add(new() { Id = "fallback", Name = "Other movies", Order = 1, Branches = [new() { Id = "fallback-movie", Condition = new() { Id = "fallback-type", FieldId = "item.kind", OperatorId = "eq", Value = RuleValue.TextValue("Movie") }, Actions = new() { Language = new() { Mode = "set", Value = "en" }, Country = new() { Mode = "set", Value = "US" }, RefreshMode = "metadata" } }] });
+    var missingLanguageSettings = new PluginConfiguration { RulesJson = RulesJson.Serialize(missingLanguageRules), Revision = "missing-original-language" };
+    await missingLanguageWorker.StartAsync(default);
+    try
+    {
+        var missingPreview = missingLanguageWorker.Enqueue(new(), true, "Manual", missingLanguageSettings);
+        await missingPreview.Completion.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var previewRow = missingLanguageStore.Rows(missingPreview.Id).Single();
+        Check(missingPreview.State == "Completed" && missingPreview.Counts.Deferred == 0 && previewRow.Plan?.Evaluation.RuleSetId == "fallback", "confirmed missing original language falls through to a later ruleset in preview");
+        Check(previewRow.Plan!.Evaluation.Trace.First().Condition is { Result: TruthValue.False, Availability: FactState.Absent }, "missing original-language trace records False and Absent rather than Unknown");
+        Check(missingLanguageMedia.Writes == 0 && missingLanguageMedia.Refreshes == 0, "missing-language fallthrough preview remains read-only");
+        var missingOriginalApplied = missingLanguageWorker.Enqueue(new() { PreviewJobId = missingPreview.Id, ExpectedRevision = missingLanguageSettings.Revision }, false, "Manual", missingLanguageSettings);
+        await missingOriginalApplied.Completion.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(missingOriginalApplied.State == "Completed" && missingLanguageMedia.Language == "en" && missingLanguageMedia.Country == "US" && missingLanguageMedia.Writes == 1 && missingLanguageMedia.Refreshes == 1, "applying the preview executes the later rule when original language is confirmed absent");
+        missingLanguageMedia.OriginalFact = FactValue.NotReady();
+        var unfinishedPreview = missingLanguageWorker.Enqueue(new(), true, "Manual", missingLanguageSettings);
+        await unfinishedPreview.Completion.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(unfinishedPreview.Counts.Deferred == 1 && missingLanguageStore.Rows(unfinishedPreview.Id).Single().Plan?.Evaluation.Trace.All(t => t.RuleSetId != "fallback") == true, "unfinished original language still defers instead of applying a lower-priority rule");
+    }
+    finally { await missingLanguageWorker.StopAsync(default); }
     Console.WriteLine($"{checks} integration assertions passed.");
 }
 finally { await coordinator.StopAsync(default); coordinator.Dispose(); Directory.Delete(directory, true); }
@@ -154,7 +178,7 @@ sealed class FakeMedia : IMediaAdapter
     public int Writes, Refreshes; public bool FailRefresh, Locked, DelayRefresh, LocaleConflictOnRefresh;
     public string ItemKind = "Movie"; public int ChildCount;
     public TaskCompletionSource RefreshStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public string Original = "no"; public string? Language, Country;
+    public string Original = "no"; public FactValue? OriginalFact; public string? Language, Country;
     public List<string> Sequence = [];
     public IReadOnlyList<string> Candidates(PluginConfiguration config, RuleDocument rules) => [Id];
     public MediaFacts? Read(string id, RuleDocument rules, DateTimeOffset timestamp, bool fresh = false)
@@ -162,7 +186,7 @@ sealed class FakeMedia : IMediaAdapter
         var facts = new MediaFacts()
     {
         ItemId = Id, Title = "Example Film", ItemKind = ItemKind, LibraryId = "00000000000000000000000000000002", Timestamp = timestamp,
-        Fields = new Dictionary<string, FactValue> { ["item.originalLanguage"] = FactValue.Known(Original), ["metadata.language"] = FactValue.Known(Language ?? ""), ["metadata.country"] = FactValue.Known(Country ?? ""), ["metadata.effectiveLanguage"] = FactValue.Known(Language ?? "en"), ["metadata.effectiveCountry"] = FactValue.Known(Country ?? "US"), ["metadata.inheritedLanguage"] = FactValue.Known("en"), ["metadata.inheritedCountry"] = FactValue.Known("US"), ["state.locked"] = FactValue.Known(Locked), ["state.virtual"] = FactValue.Known(false) }
+        Fields = new Dictionary<string, FactValue> { ["item.originalLanguage"] = OriginalFact ?? FactValue.Known(Original), ["metadata.language"] = FactValue.Known(Language ?? ""), ["metadata.country"] = FactValue.Known(Country ?? ""), ["metadata.effectiveLanguage"] = FactValue.Known(Language ?? "en"), ["metadata.effectiveCountry"] = FactValue.Known(Country ?? "US"), ["metadata.inheritedLanguage"] = FactValue.Known("en"), ["metadata.inheritedCountry"] = FactValue.Known("US"), ["state.locked"] = FactValue.Known(Locked), ["state.virtual"] = FactValue.Known(false) }
     };
         return facts with { Descendants = Enumerable.Range(0, ChildCount).Select(i => facts with { ItemId = "000000000000000000000000000000" + (i+10).ToString("00"), Title = "Episode " + i, ItemKind = "Episode", ParentId = Id, Descendants = [] }).ToArray() };
     }

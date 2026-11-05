@@ -125,12 +125,35 @@ function installMockApi(ids) {
             Evaluation: {
                 RuleSetName: 'Norwegian', BranchName: 'Audio',
                 Trace: [{
-                    BranchId: 'branch1', Evaluated: true, Result: 'True',
+                    RuleSetId: 'original-rule', BranchId: 'original-branch', Evaluated: true, Result: 'False',
                     Condition: {
-                        Kind: 'Predicate', FieldId: 'audio.language', OperatorId: 'eq', Actual: 'nob',
-                        Expected: { Kind: 'text', Text: 'norwegian' }, Result: 'True', Evaluated: true,
-                        EvidenceItemId: ids.version, EvidenceTitle: 'Version A', StreamIndex: 2,
-                        Source: 'Stored language nob normalized to nb'
+                        Kind: 'Predicate', FieldId: 'item.originalLanguage', OperatorId: 'eq',
+                        Actual: null, Availability: 'Absent', Expected: { Kind: 'text', Text: 'norwegian' },
+                        Result: 'False', Evaluated: true,
+                        Reason: 'Confirmed missing original language does not match Norwegian.'
+                    }
+                }, {
+                    RuleSetId: 'audio-rule', BranchId: 'audio-branch', Evaluated: true, Result: 'True',
+                    Condition: {
+                        Kind: 'Any', Result: 'True', Evaluated: true,
+                        Children: [{
+                            Kind: 'Predicate', FieldId: 'item.tags', OperatorId: 'containsValue', Actual: [],
+                            Availability: 'Known', Expected: { Kind: 'text', Text: 'Preferred' }, Result: 'False', Evaluated: true
+                        }, {
+                            Kind: 'Predicate', FieldId: 'rating.custom', OperatorId: 'eq', Actual: null,
+                            Availability: 'NotReady', Expected: { Kind: 'text', Text: 'NO:15' }, Result: 'Unknown', Evaluated: true
+                        }, {
+                            Kind: 'Predicate', FieldId: 'file.path', OperatorId: 'eq', Actual: null,
+                            Availability: 'Unsupported', Expected: { Kind: 'text', Text: '/Movies' }, Result: 'Unknown', Evaluated: true
+                        }, {
+                            Kind: 'Predicate', FieldId: 'rating.official', OperatorId: 'eq', Actual: null,
+                            Availability: 'ReadError', Expected: { Kind: 'text', Text: 'PG-13' }, Result: 'Unknown', Evaluated: true
+                        }, {
+                            Kind: 'Predicate', FieldId: 'audio.language', OperatorId: 'eq', Actual: 'nob',
+                            Availability: 'Known', Expected: { Kind: 'text', Text: 'norwegian' }, Result: 'True', Evaluated: true,
+                            EvidenceItemId: ids.version, EvidenceTitle: 'Version A', StreamIndex: 2,
+                            Source: 'Stored language nob normalized to nb'
+                        }]
                     }
                 }]
             },
@@ -292,6 +315,23 @@ async function runSmokeTest(page) {
     await page.getByRole('button', { name: '<img src=x onerror=alert(1)>' }).click();
     await page.getByText('Evidence: Version A · stream 2', { exact: true }).waitFor();
     await page.getByText('Source: Stored language nob normalized to nb', { exact: true }).waitFor();
+    await page.getByText('Actual: Missing · Expected: norwegian', { exact: true }).waitFor();
+    await page.getByText('Actual: Not ready · Expected: NO:15', { exact: true }).waitFor();
+    await page.getByText('Actual: Unavailable (unsupported) · Expected: /Movies', { exact: true }).waitFor();
+    await page.getByText('Actual: Unavailable (read error) · Expected: PG-13', { exact: true }).waitFor();
+    await page.getByText('Actual: (empty) · Expected: Preferred', { exact: true }).waitFor();
+    const traceText = await page.locator('.mr-details').textContent();
+    assert.equal(traceText.includes('Actual: inherit'), false, 'Missing facts must not imply inherited preferences');
+    const conditionHeaders = await page.locator('.mr-details .mr-trace > .mr-row').allTextContents();
+    const missingOriginalIndex = conditionHeaders.findIndex(header => header.includes('Original language (metadata) eq'));
+    const matchingAudioIndex = conditionHeaders.findIndex(header => header.includes('Audio language eq'));
+    assert.ok(missingOriginalIndex >= 0 && conditionHeaders[missingOriginalIndex].includes('False'),
+        'Confirmed missing original language displays a False comparison');
+    assert.ok(matchingAudioIndex > missingOriginalIndex && conditionHeaders[matchingAudioIndex].includes('True'),
+        'The trace displays the following matching audio rule');
+    assert.ok(await page.locator('.mr-details').getByRole('cell', { name: 'inherit', exact: true }).count() > 0,
+        'Locale preference tables still label cleared overrides as inherit');
+
     await page.getByRole('checkbox', { name: /Force this reviewed run/ }).check();
     await page.getByRole('button', { name: 'Apply this preview' }).click();
     await page.locator('#mrHistoryResults').waitFor();
@@ -344,7 +384,7 @@ async function main() {
     try {
         page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
         await runSmokeTest(page);
-        console.log('PASS: templates, typed nested AST, stored rating suggestions, optimistic save, stored facts, per-rule counts, stale/truncated preview guards, safe media text, evidence, reviewed execution, invalid imports, mobile layout and lifecycle.');
+        console.log('PASS: templates, typed nested AST, stored rating suggestions, optimistic save, stored facts, per-rule counts, stale/truncated preview guards, safe media text, missing-fact trace states, evidence, reviewed execution, invalid imports, mobile layout and lifecycle.');
         console.log('Screenshots: artifacts/ui');
     } catch (error) {
         if (page) await page.screenshot({ path: path.join(screenshotDirectory, 'failure.png'), fullPage: true, animations: 'disabled' }).catch(() => {});

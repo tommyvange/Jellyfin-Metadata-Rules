@@ -11,7 +11,7 @@ The plugin targets **Jellyfin 12.4.0 (v12.4), using .NET 10**. CI also compiles 
 Download the plugin ZIP from a published GitHub release, or build the local package below. For a manual installation:
 
 1. Stop Jellyfin.
-2. Create a dedicated directory such as `Metadata Rules_1.0.1.0` inside Jellyfin's configured `plugins` directory.
+2. Create a dedicated directory such as `Metadata Rules_1.0.2.0` inside Jellyfin's configured `plugins` directory.
 3. Extract **all three files** directly into that directory:
 
    ```text
@@ -56,7 +56,11 @@ Rulesets run in displayed order. Each contains IF, ELSE IF, and optional termina
 
 Conditions support nested AND, OR, NOT, scalar/set comparisons, and correlated any/all/none/count tests over versions, streams, and episodes. A single audio track must satisfy every condition inside its track group. Known empty collections differ from unavailable collections: ANY is false, NONE is true, and ALL requires at least one element. “Is missing” can match confirmed absence; unfinished facts remain unknown.
 
-**Original language (metadata)** is the provider's stored original-language value. It is separate from actual audio tracks and is never inferred from titles, countries, or the default audio track. The Norwegian templates distinguish:
+**Original language (metadata)** is the provider's stored original-language value. It is separate from actual audio tracks and is never inferred from titles, countries, or the default audio track.
+
+When an item's original language, or its inherited series original language, is **confirmed absent**, Equals, Does not equal, Is one of, and Is none of return a nonmatch. Evaluation can continue to a later branch, such as a Norwegian-audio rule. Absence does not identify the work's actual original language. Unfinished metadata, read errors, and unsupported original-language facts remain Unknown and defer lower-priority branches. Use **Is missing** when a rule should explicitly match confirmed absence. This original-language behavior does not change missing comparisons for other fields.
+
+The Norwegian templates distinguish:
 
 - **Norwegian, any variant:** accepts `no`/`nor`, `nb`/`nob`, and `nn`/`nno`.
 - **Exact Norwegian, Bokmål, or Nynorsk:** preserves those separate language choices.
@@ -100,4 +104,4 @@ npm run package
 node scripts/validate-package.mjs
 ```
 
-The current package is `artifacts/Jellyfin.Plugin.MetadataRules_1.0.1.0_jellyfin-12.4.0.zip`, with a SHA-256 sidecar. `npm test` covers the pure rule engine, coordinator behavior, Jellyfin 12.4 adapter contracts, event snapshots, native XML configuration persistence, and release tooling. See [architecture and verification boundaries](docs/architecture.md) for what these checks prove and the remaining server acceptance work.
+The current package is `artifacts/Jellyfin.Plugin.MetadataRules_1.0.2.0_jellyfin-12.4.0.zip`, with a SHA-256 sidecar. `npm test` covers the pure rule engine, coordinator behavior, Jellyfin 12.4 adapter contracts, event snapshots, native XML configuration persistence, and release tooling. See [architecture and verification boundaries](docs/architecture.md) for what these checks prove and the remaining server acceptance work.

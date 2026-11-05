@@ -67,7 +67,7 @@ Test("Track conditions correlate on one track", () =>
     Check(Eval(condition, Playable("A", Track("no-stereo", "nb", 2), Track("en-surround", "en", 6))) == TruthValue.False);
     Check(Eval(condition, Playable("A", Track("no-surround", "nb", 6))) == TruthValue.True);
 });
-Test("Missing original language blocks lower branch and ELSE", () =>
+Test("Pending original language blocks lower branch and ELSE", () =>
 {
     var facts = Facts(fields: new() { ["item.originalLanguage"] = FactValue.NotReady() }, collections: new() { ["versions"] = FactCollection.Known(Playable("A", Track("norwegian", "nb"))) });
     var doc = Doc(original); doc.RuleSets[0].Branches.Add(new() { Condition = audio }); doc.RuleSets[0].Branches.Add(new() { IsElse = true });
@@ -97,10 +97,81 @@ Test("Short-circuited conditions are not evaluated", () =>
     var result = evaluator.EvaluateCondition(Group("Any", Text("item.title", "movie"), original), Facts(), timestamp);
     Check(result.Children[1].Evaluated == false && result.Children[1].Result is null);
 });
-Test("Negative language conditions preserve unknown", () =>
+Test("Unready and unidentified original language comparisons preserve unknown", () =>
 {
-    foreach (var fact in new[] { FactValue.Absent(), FactValue.NotReady(), FactValue.Unsupported(), FactValue.ReadError("error"), FactValue.Known("und"), FactValue.Known("mul"), FactValue.Known("mis"), FactValue.Known("unk"), FactValue.Known("") })
+    foreach (var fact in new[] { FactValue.NotReady(), FactValue.Unsupported(), FactValue.ReadError("error"), FactValue.Known("und"), FactValue.Known("mul"), FactValue.Known("mis"), FactValue.Known("unk"), FactValue.Known("") })
         Check(Eval(Text("item.originalLanguage", "no", "neq"), Facts(fields: new() { ["item.originalLanguage"] = fact })) == TruthValue.Unknown);
+});
+Test("Confirmed missing original language falls through to Norwegian audio in the same chain", () =>
+{
+    var facts = Facts(fields: new Dictionary<string, FactValue>(preferences) { ["item.originalLanguage"] = FactValue.Absent("Stored metadata has no original language after refresh.") }, collections: new() { ["versions"] = FactCollection.Known(Playable("A", Track("dub", "nob"))) });
+    var doc = Doc(Text("item.originalLanguage", "norwegian"));
+    doc.RuleSets[0].Branches.Add(new() { Name = "Norwegian audio", Condition = audio, Actions = Locale() });
+    var result = evaluator.Evaluate(doc, facts, timestamp);
+    Check(result.Status == "Matched" && result.BranchName == "Norwegian audio");
+    Check(result.Trace[0].Condition is { Result: TruthValue.False, Availability: FactState.Absent } first && !string.IsNullOrWhiteSpace(first.Reason));
+    Check(result.Trace[1].Evaluated && result.Trace[1].Result == TruthValue.True);
+    var plan = planner.Plan(doc, facts, timestamp);
+    Check(plan.Targets.Single().After is { Language: "no", Country: "NO" }, "the later winning branch must produce an executable locale plan");
+});
+Test("Confirmed missing original language permits later rulesets and terminal ELSE", () =>
+{
+    var facts = Facts(fields: new() { ["item.originalLanguage"] = FactValue.Absent() });
+    var doc = Doc(Text("item.originalLanguage", "norwegian"));
+    var later = new RuleSet { Name = "Regular movie rule", Order = 1, Branches = [new() { Condition = Text("item.kind", "Movie"), Actions = Locale("nb") }] };
+    doc.RuleSets.Add(later);
+    var result = evaluator.Evaluate(doc, facts, timestamp);
+    Check(result.Status == "Matched" && result.RuleSetId == later.Id && result.Trace[0].Result == TruthValue.False);
+    doc = Doc(Text("item.originalLanguage", "norwegian"));
+    var otherwise = new RuleBranch { Name = "Fallback ELSE", IsElse = true, Actions = new() };
+    doc.RuleSets[0].Branches.Add(otherwise);
+    result = evaluator.Evaluate(doc, facts, timestamp);
+    Check(result.Status == "Matched" && result.BranchId == otherwise.Id && result.Trace[0].Result == TruthValue.False);
+});
+Test("Both original language fields treat confirmed absence as false for positive and negative comparisons", () =>
+{
+    foreach (var field in new[] { "item.originalLanguage", "series.originalLanguage" })
+    {
+        var facts = Facts("episode", "Episode", new() { [field] = FactValue.Absent("Original language was not supplied by stored metadata.") });
+        foreach (var op in new[] { "eq", "neq", "in", "notIn" })
+        {
+            var value = op is "in" or "notIn" ? RuleValue.SetValue("norwegian", "en") : RuleValue.TextValue("norwegian");
+            var trace = evaluator.EvaluateCondition(P(field, op, value), facts, timestamp);
+            Check(trace.Result == TruthValue.False && trace.Availability == FactState.Absent && !string.IsNullOrWhiteSpace(trace.Reason), field + " / " + op + " must fall through without claiming a different language");
+        }
+        Check(Eval(P(field, "isMissing"), facts) == TruthValue.True, "availability still deliberately matches confirmed absence");
+    }
+});
+Test("Pending errors and unsupported original language still block lower priority branches", () =>
+{
+    foreach (var (fact, status) in new[] { (FactValue.NotReady(), "Deferred"), (FactValue.ReadError("fixture failure"), "Error"), (FactValue.Unsupported(), "Deferred") })
+    {
+        var doc = Doc(Text("item.originalLanguage", "norwegian"));
+        doc.RuleSets[0].Branches.Add(new() { IsElse = true });
+        var result = evaluator.Evaluate(doc, Facts(fields: new() { ["item.originalLanguage"] = fact }), timestamp);
+        Check(result.Status == status && result.Trace[0].Result == TruthValue.Unknown && !result.Trace[1].Evaluated, fact.State + " must not be mistaken for confirmed absence");
+    }
+});
+Test("Inherited series original language follows absence rules while pending series facts defer", () =>
+{
+    var doc = Doc(Text("series.originalLanguage", "norwegian")); doc.RuleSets[0].Scope.ItemKinds = ["Episode"];
+    var fallback = new RuleBranch { Name = "Episode fallback", Condition = Text("item.kind", "Episode"), Actions = Locale() };
+    doc.RuleSets[0].Branches.Add(fallback);
+    var facts = Facts("episode", "Episode", new() { ["series.originalLanguage"] = FactValue.Absent(), ["item.originalLanguage"] = FactValue.Known("en") });
+    Check(evaluator.Evaluate(doc, facts, timestamp) is { Status: "Matched", BranchId: var id } && id == fallback.Id);
+    facts = facts with { Fields = new Dictionary<string, FactValue> { ["series.originalLanguage"] = FactValue.NotReady(), ["item.originalLanguage"] = FactValue.Known("en") } };
+    Check(evaluator.Evaluate(doc, facts, timestamp).Status == "Deferred", "an episode's local language cannot establish an unfinished inherited series language");
+});
+Test("Confirmed missing audio and other fields retain unknown comparison behavior", () =>
+{
+    var track = Facts("track", "AudioTrack", new() { ["audio.language"] = FactValue.Absent() });
+    foreach (var op in new[] { "eq", "neq", "in", "notIn" })
+    {
+        var value = op is "in" or "notIn" ? RuleValue.SetValue("norwegian") : RuleValue.TextValue("norwegian");
+        Check(Eval(P("audio.language", op, value), track) == TruthValue.Unknown, "missing audio language must remain unknown: " + op);
+    }
+    Check(Eval(Text("metadata.language", "no", "neq"), Facts(fields: new() { ["metadata.language"] = FactValue.Absent() })) == TruthValue.Unknown);
+    Check(Eval(Text("item.title", "movie", "neq"), Facts(fields: new() { ["item.title"] = FactValue.Absent() })) == TruthValue.Unknown);
 });
 Test("Availability distinguishes unfinished from confirmed missing", () =>
 {
