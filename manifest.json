@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "7960b22c-4e70-4a69-a57a-9b3b68dfdd38",
+    "name": "Metadata Rules",
+    "description": "Automatically sets preferred metadata language and country for movies and series using stored metadata, file properties, and correlated media-track conditions. Includes preview, manual processing, and safe refresh controls.",
+    "overview": "Apply metadata language and country with configurable library rules.",
+    "owner": "tommyvange",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/tommyvange/Jellyfin-Metadata-Rules/v1.0.1.0/assets/Jellyfin-Metadata-Rules.png",
+    "versions": [
+      {
+        "version": "1.0.1.0",
+        "changelog": "Metadata Rules 1.0.1.0\n\n- Expose **Age rating** and **Custom age rating** as separate conditions in the visual rule builder.\n- Suggest rating values already used across stored library metadata, with separate suggestions for official and custom age ratings.\n- Preserve existing `rating.official` and `rating.custom` field IDs and text comparisons, including custom values. Rating labels are not treated as a universal numerical age scale.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/tommyvange/Jellyfin-Metadata-Rules/releases/download/v1.0.1.0/Jellyfin.Plugin.MetadataRules_1.0.1.0_jellyfin-12.4.0.zip",
+        "checksum": "e56020617419cb48ade96760644a9625",
+        "timestamp": "2026-11-05T13:05:04.000Z"
+      }
+    ]
+  }
+]
