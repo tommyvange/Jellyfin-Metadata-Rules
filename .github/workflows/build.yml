@@ -1,0 +1,120 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_call:
+    inputs:
+      release-tag:
+        description: Optional release tag; must match Directory.Build.props.
+        required: false
+        type: string
+        default: ''
+    outputs:
+      version:
+        description: Four-part plugin version.
+        value: ${{ jobs.metadata.outputs.version }}
+      minimum-jellyfin:
+        description: Oldest supported Jellyfin version and release package target.
+        value: ${{ jobs.metadata.outputs.minimum-jellyfin }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      matrix: ${{ steps.compatibility.outputs.matrix }}
+      minimum-jellyfin: ${{ steps.release.outputs.minimum-jellyfin }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release-tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Validate release metadata
+        id: release
+        env:
+          EXPECTED_TAG: ${{ inputs.release-tag }}
+        run: node scripts/release-info.mjs --github-output >> "$GITHUB_OUTPUT"
+      - name: Resolve minimum and latest stable Jellyfin
+        id: compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/compatibility-info.mjs --github-output >> "$GITHUB_OUTPUT"
+
+  unit:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release-tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Test rule engine and release tooling
+        run: npm test
+
+  compatibility:
+    name: Jellyfin ${{ matrix.jellyfin }} (${{ matrix.role }})
+    needs: [metadata, unit]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.metadata.outputs.matrix) }}
+    env:
+      JELLYFIN_VERSION: ${{ matrix.jellyfin }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release-tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Compile against latest stable server API
+        if: ${{ !matrix.publishPackage }}
+        run: dotnet build src/Jellyfin.Plugin.MetadataRules -c Release -p:JellyfinVersion="$JELLYFIN_VERSION"
+      - name: Build minimum-ABI catalog package
+        if: ${{ matrix.publishPackage }}
+        run: node scripts/package.mjs "$JELLYFIN_VERSION"
+      - name: Validate installable package
+        if: ${{ matrix.publishPackage }}
+        run: node scripts/validate-package.mjs
+      - name: Upload tested package
+        if: ${{ matrix.publishPackage }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-rules-jellyfin-${{ matrix.jellyfin }}
+          path: |
+            artifacts/*.zip
+            artifacts/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Report tested server release
+        if: always()
+        run: echo "Compiled Jellyfin $JELLYFIN_VERSION (${{ matrix.role }})" >> "$GITHUB_STEP_SUMMARY"

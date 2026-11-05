@@ -1,0 +1,24 @@
+{
+  "name": "jellyfin-metadata-rules",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Automatic metadata language and country rules for Jellyfin libraries.",
+  "scripts": {
+    "test": "node --check tests/ui-smoke.cjs && node --test tests/*.test.cjs && dotnet run --project tests/Engine/Engine.Acceptance.csproj && dotnet run --project tests/Integration/Integration.csproj && dotnet run --project tests/Adapter/Adapter.Acceptance.csproj && dotnet run --project tests/TriggerEvents/TriggerEvents.csproj && dotnet run --project tests/Configuration/Configuration.Acceptance.csproj && dotnet run --project tests/Ratings/Ratings.Acceptance.csproj",
+    "test:release": "node --test tests/release.test.cjs",
+    "test:engine": "dotnet run --project tests/Engine/Engine.Acceptance.csproj",
+    "build": "dotnet build src/Jellyfin.Plugin.MetadataRules -c Release",
+    "package": "node scripts/package.mjs",
+    "release:info": "node scripts/release-info.mjs",
+    "compatibility:info": "node scripts/compatibility-info.mjs",
+    "test:integration": "dotnet run --project tests/Integration/Integration.csproj",
+    "test:adapter": "dotnet run --project tests/Adapter/Adapter.Acceptance.csproj",
+    "test:triggers": "dotnet run --project tests/TriggerEvents/TriggerEvents.csproj",
+    "test:ui": "node tests/ui-smoke.cjs",
+    "test:configuration": "dotnet run --project tests/Configuration/Configuration.Acceptance.csproj",
+    "test:ratings": "dotnet run --project tests/Ratings/Ratings.Acceptance.csproj"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">12.4.0</JellyfinVersion>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <RootNamespace>Jellyfin.Plugin.MetadataRules</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.MetadataRules</AssemblyName>
+    <Description>Explainable metadata language and country rules for Jellyfin.</Description>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
+    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Web/config.html" /></ItemGroup>
+</Project>

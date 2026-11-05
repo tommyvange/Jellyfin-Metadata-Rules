@@ -1,0 +1,113 @@
+name: Publish release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing four-part version tag to release or retry, e.g. v1.0.0.0.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize catalog updates from different releases; never cancel a publication.
+concurrency:
+  group: plugin-releases
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.tag.outputs.name }}
+    steps:
+      - name: Select tag
+        id: tag
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Expected a tag such as v1.0.0.0.' >&2
+            exit 1
+          fi
+          echo "name=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check tag is on main
+        run: git merge-base --is-ancestor HEAD origin/main
+
+  # The reusable workflow checks out the selected release tag for verification.
+  verify:
+    needs: tag
+    uses: ./.github/workflows/build.yml
+    with:
+      release-tag: ${{ needs.tag.outputs.name }}
+
+  publish:
+    needs: [tag, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.tag.outputs.name }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag.outputs.name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download minimum-ABI catalog package
+        uses: actions/download-artifact@v4
+        with:
+          name: metadata-rules-jellyfin-${{ needs.verify.outputs.minimum-jellyfin }}
+          path: artifacts
+      - name: Publish or recover immutable release assets
+        id: release
+        run: node scripts/publish-release.mjs "$REPOSITORY" "$RELEASE_TAG" artifacts
+      - name: Read catalog history
+        run: |
+          git ls-remote --heads origin refs/heads/manifest > catalog-ref.txt
+          if [[ -s catalog-ref.txt ]]; then
+            git fetch origin refs/heads/manifest:refs/remotes/origin/manifest
+            git show origin/manifest:manifest.json > previous-manifest.json
+          else
+            echo '[]' > previous-manifest.json
+          fi
+      - name: Generate validated Jellyfin catalog
+        env:
+          RELEASE_TIMESTAMP: ${{ steps.release.outputs.timestamp }}
+        run: node scripts/generate-manifest.mjs "$REPOSITORY" "$RELEASE_TAG" artifacts previous-manifest.json generated-manifest.json "$RELEASE_TIMESTAMP"
+      - name: Advance catalog branch
+        run: |
+          # An isolated checkout avoids mixing generated catalog commits into main.
+          # A worktree shares checkout's Git authentication without copying secrets.
+          git worktree add --detach catalog HEAD
+          cd catalog
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git show-ref --verify --quiet refs/remotes/origin/manifest; then
+            git checkout -B manifest origin/manifest
+          else
+            git checkout --orphan manifest
+            git rm -r -f -q --ignore-unmatch .
+          fi
+          cp ../generated-manifest.json manifest.json
+          git add manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Catalog ${RELEASE_TAG}"
+            git push origin HEAD:manifest
+          fi
+      - name: Report catalog URL
+        run: echo "Jellyfin repository URL https://raw.githubusercontent.com/${REPOSITORY}/manifest/manifest.json" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,40 @@
+# .NET build outputs and test reports
+bin/
+obj/
+TestResults/
+*.trx
+coverage/
+
+# Generated plugin packages and downloaded Jellyfin research fixtures
+/artifacts/
+/.research/
+
+# Node dependencies, local caches, and package-manager logs
+node_modules/
+.npm/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+
+# Local IDE settings; shared VS Code configuration can be committed
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.history/
+
+# Local environment overrides (keep the example file trackable)
+.env
+.env.*
+!.env.example
+
+# Editor temporary files and operating-system metadata
+*~
+*.swp
+*.swo
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

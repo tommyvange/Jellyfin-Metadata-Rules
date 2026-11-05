@@ -1,0 +1,14 @@
+{
+  "guid": "7960b22c-4e70-4a69-a57a-9b3b68dfdd38",
+  "name": "Metadata Rules",
+  "assemblyName": "Jellyfin.Plugin.MetadataRules",
+  "imagePath": "assets/Jellyfin-Metadata-Rules.png",
+  "owner": "tommyvange",
+  "category": "General",
+  "overview": "Apply metadata language and country with configurable library rules.",
+  "description": "Automatically sets preferred metadata language and country for movies and series using stored metadata, file properties, and correlated media-track conditions. Includes preview, manual processing, and safe refresh controls.",
+  "minimumJellyfinVersion": "12.4.0",
+  "compatibility": {
+    "latestReleaseUrl": "https://api.github.com/repos/jellyfin/jellyfin/releases/latest"
+  }
+}
